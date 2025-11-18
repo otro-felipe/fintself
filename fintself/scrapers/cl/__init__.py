@@ -5,10 +5,12 @@ from .banco_chile import BancoChileScraper
 from .cencosud import CencosudScraper
 from .estado import BancoEstadoScraper
 from .santander import SantanderScraper
+from .bice import BiceScraper
 
 __all__ = [
     "BancoChileScraper",
     "BancoEstadoScraper",
     "CencosudScraper",
     "SantanderScraper",
+    "BiceScraper"
 ]
