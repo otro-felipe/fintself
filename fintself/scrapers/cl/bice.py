@@ -321,7 +321,7 @@ class BiceScraper(BaseScraper):
             logger.info(f"Clicking 'Siguiente' to go to page {page_num + 1}...")
 
             first_row_description_selector = (
-                "tbody.table-body tr:first-child td:third-child"
+                "tbody.table-body tr:first-child td:nth-child(3)"
             )
             old_first_description = ""
             try:
