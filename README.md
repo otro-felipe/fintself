@@ -37,6 +37,7 @@ Actualmente, Fintself soporta los siguientes bancos:
   - Banco Santander (`cl_santander`)
   - Banco de Chile (`cl_banco_chile`)
   - Banco Estado (CuentaRUT) (`cl_estado`)
+  - Banco Bice (`cl_bice`) - Contribución de [@albertocintolesi](https://github.com/albertocintolesi)
   - Tarjeta Cencosud Scotiabank (`cl_cencosud`)
 
 Para ver la lista actualizada directamente desde la herramienta, ejecuta `fintself list`.
