@@ -2,6 +2,38 @@
 
 <!-- version list -->
 
+## v1.4.0 (2025-10-06)
+
+### Features
+
+- Add Banco Estado (CuentaRUT) scraper
+  ([`dc84769`](https://github.com/jorgeortizfuentes/fintself/commit/dc847693edc3b28331020e34ad3de43d57f6b8cf))
+
+- Add Banco Estado (CuentaRUT) scraper
+  ([#15](https://github.com/jorgeortizfuentes/fintself/pull/15),
+  [`dc84769`](https://github.com/jorgeortizfuentes/fintself/commit/dc847693edc3b28331020e34ad3de43d57f6b8cf))
+
+- Add multiple credit card support for Santander scraper
+  ([#13](https://github.com/jorgeortizfuentes/fintself/pull/13),
+  [`dc84769`](https://github.com/jorgeortizfuentes/fintself/commit/dc847693edc3b28331020e34ad3de43d57f6b8cf))
+
+- Add multiple credit card support for santander scraper
+  ([`dc84769`](https://github.com/jorgeortizfuentes/fintself/commit/dc847693edc3b28331020e34ad3de43d57f6b8cf))
+
+
+## v1.3.0 (2025-10-05)
+
+### Features
+
+- Add multiple credit card support for santander scraper
+  ([#14](https://github.com/fintself/fintself/pull/14),
+  [`4a8e231`](https://github.com/fintself/fintself/commit/4a8e2312d0c3f28755ca246df423cd745a3c7dd4))
+
+- Add multiple credit card support for Santander scraper (#13)
+  ([#14](https://github.com/fintself/fintself/pull/14),
+  [`4a8e231`](https://github.com/fintself/fintself/commit/4a8e2312d0c3f28755ca246df423cd745a3c7dd4))
+
+
 ## v1.2.0 (2025-10-05)
 
 ### Features
