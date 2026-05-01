@@ -29,6 +29,10 @@ class BiceScraper(BaseScraper):
 
         return clean_amount
 
+    def _parse_intl_amount(self, amount_str: str) -> str:
+        """Parser for international USD amount format like '4,70 US$'."""
+        return re.sub(r"[^\d,.-]", "", amount_str)
+
     def _parse_bice_date(self, date_str: str) -> Optional[datetime]:
         """Parser for specific Bice date format."""
         month_map = {
@@ -41,6 +45,7 @@ class BiceScraper(BaseScraper):
             "jul": "07",
             "ago": "08",
             "sep": "09",
+            "sept": "09",
             "oct": "10",
             "nov": "11",
             "dic": "12",
@@ -113,12 +118,38 @@ class BiceScraper(BaseScraper):
             self._save_debug_info("login_failed")
             raise LoginError("Timeout or error after login to Bice. Check credentials.")
 
+    def _close_popups(self) -> None:
+        """Closes any visible popup (marketing banners, NPS surveys, etc.)."""
+        page = self._ensure_page()
+        logger.info("Checking for popups.")
+
+        popups = [
+            ("marketing popup", "button:has-text('Cerrar X')"),
+            (
+                "Qualtrics survey",
+                "div[class*='QSIWebResponsive'] button[aria-label='Cerrar']",
+            ),
+        ]
+
+        for name, selector in popups:
+            try:
+                close_button = page.locator(selector)
+                if close_button.is_visible(timeout=3000):
+                    logger.info(f"{name.capitalize()} detected. Closing...")
+                    self._click(close_button)
+                    page.wait_for_timeout(500)
+                    logger.info(f"{name.capitalize()} closed.")
+            except Exception as e:
+                logger.warning(f"Ignored error while checking {name}: {e}")
+
     def _scrape_movements(self) -> List[MovementModel]:
         """Orchestrates the extraction of debit and credit card movements."""
         logger.info("Starting movements scrapping.")
 
         try:
             page = self._ensure_page()
+            page.wait_for_timeout(5000)
+            self._close_popups()
             debit_movements_button_container = page.locator("#collapseCCT0")
             debit_card_movements_button = debit_movements_button_container.locator(
                 "a.ultimosMov"
@@ -126,7 +157,7 @@ class BiceScraper(BaseScraper):
             self._click(debit_card_movements_button)
             debit_movements_table_selector = "tbody.table-body"
             self._wait_for_selector(
-                debit_movements_table_selector, timeout_override=60000
+                debit_movements_table_selector, timeout_override=30000
             )
 
             self._save_debug_info("09_debit_card_movements_page")
@@ -140,6 +171,8 @@ class BiceScraper(BaseScraper):
         debit_card_movements = self._extract_debit_card_movements()
 
         logger.info("Navigating back to main dashboard for credit card extraction.")
+
+        self._close_popups()
 
         try:
             volver_button_selector = "button:has-text('Volver')"
@@ -182,9 +215,9 @@ class BiceScraper(BaseScraper):
         logger.info("Navigating to Credit Card movements.")
 
         try:
-            credit_movements_container_selector = "lib-billing-period"
+            credit_movements_container_selector = "#tab0"
             self._wait_for_selector(
-                credit_movements_container_selector, timeout_override=60000
+                credit_movements_container_selector, timeout_override=30000
             )
 
             self._save_debug_info("11_credit_card_movements_page")
@@ -220,31 +253,35 @@ class BiceScraper(BaseScraper):
 
             movements_on_page: List[MovementModel] = []
 
-            amount_cell_selector = "tbody.table-body .transaction-table__amount"
+            row_selector = "tbody.table-body tr"
 
             try:
                 self._wait_for_selector(
-                    f"{amount_cell_selector} >> nth=0", timeout_override=10000
+                    f"{row_selector} >> nth=0", timeout_override=10000
                 )
             except (PlaywrightTimeoutError, DataExtractionError):
                 logger.info("No movement rows found on this page.")
                 return []
 
-            amount_cells = page.locator(amount_cell_selector).all()
-            logger.debug(f"Found {len(amount_cells)} rows on this page.")
+            rows = page.locator(row_selector).all()
+            logger.debug(f"Found {len(rows)} rows on this page.")
 
-            for i, amount_cell in enumerate(amount_cells):
+            for i, row in enumerate(rows):
                 try:
-                    row = amount_cell.locator("xpath=../..")
-
-                    date_selector = "td:nth-child(1)"
-                    type_selector = "td:nth-child(2)"
-                    description_selector = "td:nth-child(3)"
-
-                    date_str = row.locator(date_selector).inner_text().strip()
-                    type_str = row.locator(type_selector).inner_text().strip()
-                    description = row.locator(description_selector).inner_text().strip()
-                    amount_str = amount_cell.inner_text().strip()
+                    date_str = (
+                        row.locator("td:nth-child(1)").inner_text(timeout=5000).strip()
+                    )
+                    type_str = (
+                        row.locator("td:nth-child(2)").inner_text(timeout=5000).strip()
+                    )
+                    description = (
+                        row.locator("td:nth-child(3)").inner_text(timeout=5000).strip()
+                    )
+                    amount_str = (
+                        row.locator(".transaction-table__amount >> nth=0")
+                        .inner_text(timeout=5000)
+                        .strip()
+                    )
 
                     parsed_date = self._parse_bice_date(date_str)
 
@@ -328,7 +365,7 @@ class BiceScraper(BaseScraper):
                 if page.locator(first_row_description_selector).count() > 0:
                     old_first_description = page.locator(
                         first_row_description_selector
-                    ).inner_text()
+                    ).inner_text(timeout=5000)
             except Exception:
                 pass
 
@@ -355,17 +392,13 @@ class BiceScraper(BaseScraper):
         return all_debit_movements
 
     def _extract_credit_card_movements(self) -> List[MovementModel]:
-        """Extracts movements made by credit card."""
-        page = self._ensure_page()
-
-        all_credit_movements: List[MovementModel] = []
-
+        """Orchestrates national credit card movement extraction (unbilled and billed)."""
         try:
             account_id_selector = "p.format-number"
             element = self._wait_for_selector(
                 account_id_selector, timeout_override=15000
             )
-            account_id = element.inner_text().strip()
+            account_id = element.inner_text(timeout=5000).strip()
             logger.info(f"Found credit card ID: {account_id}")
         except Exception as e:
             logger.warning(
@@ -374,25 +407,43 @@ class BiceScraper(BaseScraper):
             self._save_debug_info("account_id_extraction_failed_credit")
             account_id = "credit_card_unknown"
 
-        logger.info("Starting credit card movements extraction.")
+        all_movements: List[MovementModel] = []
+        all_movements.extend(
+            self._extract_unbilled_national_credit_movements(account_id)
+        )
+        all_movements.extend(self._extract_billed_national_credit_movements(account_id))
 
-        unbilled_movements: List[MovementModel] = []
+        all_movements.extend(self._extract_unbilled_intl_credit_movements(account_id))
+        all_movements.extend(self._extract_billed_intl_credit_movements(account_id))
+
+        logger.info(
+            f"Credit card extraction finished. Total: {len(all_movements)} movements."
+        )
+        return all_movements
+
+    def _extract_unbilled_national_credit_movements(
+        self, account_id: str
+    ) -> List[MovementModel]:
+        """Extracts unbilled national credit card movements (current period, tab0)."""
+        page = self._ensure_page()
+        logger.info("Starting unbilled national credit card movements extraction.")
 
         row_selector = "app-transaction-row div.row.transaction"
 
         try:
             page.wait_for_selector(f"{row_selector} >> nth=0", timeout=10000)
-
         except (PlaywrightTimeoutError, DataExtractionError):
-            logger.info("No credit card movement rows found on this page.")
+            logger.info("No unbilled credit card movement rows found on this page.")
             return []
 
         rows = page.locator(row_selector).all()
-        logger.debug(f"Found {len(rows)} credit card rows on this page.")
+        logger.debug(f"Found {len(rows)} unbilled credit card rows.")
+
+        unbilled_movements: List[MovementModel] = []
 
         for i, row in enumerate(rows):
             try:
-                date_str = row.locator(".date").inner_text().strip()
+                date_str = row.locator(".date").inner_text(timeout=5000).strip()
                 parsed_date = self._parse_bice_date(date_str)
                 if not parsed_date:
                     logger.warning(
@@ -400,35 +451,43 @@ class BiceScraper(BaseScraper):
                     )
                     continue
 
-                amount_str = row.locator(".transaction-amount").inner_text().strip()
+                amount_str = (
+                    row.locator(".transaction-amount").inner_text(timeout=5000).strip()
+                )
                 parsed_amount = parse_chilean_amount(
                     self._parse_bice_amount(amount_str)
                 )
 
                 row_class = row.locator("div.wm-100").get_attribute("class")
 
-                transaction_type = "Abono"
-
                 if "cargos" in row_class:
                     transaction_type = "Cargo"
-
                     parsed_amount = -abs(parsed_amount)
-
-                    category_name = row.locator(".category-name").inner_text().strip()
+                    category_name = (
+                        row.locator(".category-name").inner_text(timeout=5000).strip()
+                    )
                     category_desc = (
-                        row.locator(".category-description").inner_text().strip()
+                        row.locator(".category-description")
+                        .inner_text(timeout=5000)
+                        .strip()
                     )
                     transaction_detail = (
-                        row.locator(".transaction-detail").inner_text().strip()
+                        row.locator(".transaction-detail")
+                        .inner_text(timeout=5000)
+                        .strip()
                     )
                     description = (
                         f"{transaction_detail} ({category_name}, {category_desc})"
                     )
-
                 else:
-                    category_name = row.locator(".category-name").inner_text().strip()
+                    transaction_type = "Abono"
+                    category_name = (
+                        row.locator(".category-name").inner_text(timeout=5000).strip()
+                    )
                     transaction_detail = (
-                        row.locator(".transaction-detail").inner_text().strip()
+                        row.locator(".transaction-detail")
+                        .inner_text(timeout=5000)
+                        .strip()
                     )
                     description = f"{transaction_detail} ({category_name})"
 
@@ -452,20 +511,427 @@ class BiceScraper(BaseScraper):
                 unbilled_movements.append(movement)
 
             except Exception as e:
-                logger.warning(f"Failed to parse credit card row {i}: {e}")
-                self._save_debug_info(f"09_credit_row_parse_failed_row_{i}")
+                logger.warning(f"Failed to parse unbilled credit card row {i}: {e}")
+                self._save_debug_info(f"unbilled_credit_row_{i}_failed")
                 continue
 
         logger.info(
-            f"Successfully extracted {len(unbilled_movements)} credit card movements from this page."
+            f"Successfully extracted {len(unbilled_movements)} unbilled national credit card movements."
         )
+        return unbilled_movements
 
-        all_credit_movements.extend(unbilled_movements)
+    def _extract_billed_national_credit_movements(
+        self, account_id: str
+    ) -> List[MovementModel]:
+        """Extracts billed national credit card movements from all billing period accordions."""
+        page = self._ensure_page()
+        logger.info("Navigating to billed national credit card movements (#tab1).")
 
-        # TO DO: Extract international and billed transactions.
+        self._click("#tab1")
+
+        accordion_locator = page.locator("[id^='acc-']")
+        try:
+            self._wait_for_selector(accordion_locator, timeout_override=15000)
+        except (PlaywrightTimeoutError, DataExtractionError):
+            logger.info("No billed movement periods found.")
+            return []
+
+        acc_count = accordion_locator.count()
+        logger.info(f"Found {acc_count} billing period(s).")
+        self._save_debug_info("12_billed_national_periods")
+
+        all_billed_movements: List[MovementModel] = []
+
+        for i in range(acc_count):
+            acc = accordion_locator.nth(i)
+
+            period_label = f"Período {i + 1}"
+            try:
+                period_label = (
+                    acc.locator(".period-accordion-header strong")
+                    .inner_text(timeout=5000)
+                    .strip()
+                )
+            except Exception:
+                pass
+
+            logger.info(f"Processing billing period {i}: {period_label}.")
+
+            toggle_button = acc.locator(".card-header button")
+            try:
+                is_expanded = toggle_button.get_attribute("aria-expanded") == "true"
+                if not is_expanded:
+                    self._click(toggle_button)
+                    self._wait_for_selector(
+                        acc.locator("app-transaction-row"),
+                        timeout_override=10000,
+                    )
+            except (PlaywrightTimeoutError, DataExtractionError) as e:
+                logger.warning(f"Failed to expand period {i} ({period_label}): {e}")
+                self._save_debug_info(f"billed_period_{i}_expand_failed")
+                continue
+
+            rows = acc.locator("app-transaction-row div.row.transaction").all()
+            logger.debug(f"Found {len(rows)} rows in period {i}.")
+
+            period_movements: List[MovementModel] = []
+
+            for j, row in enumerate(rows):
+                try:
+                    date_str = row.locator(".date").inner_text(timeout=5000).strip()
+                    parsed_date = self._parse_bice_date(date_str)
+                    if not parsed_date:
+                        logger.warning(
+                            f"Could not parse date '{date_str}' in period {i}, row {j}. Skipping."
+                        )
+                        continue
+
+                    amount_str = (
+                        row.locator(".transaction-amount")
+                        .inner_text(timeout=5000)
+                        .strip()
+                    )
+                    parsed_amount = parse_chilean_amount(
+                        self._parse_bice_amount(amount_str)
+                    )
+
+                    row_class = row.locator("div.wm-100").get_attribute("class")
+
+                    installments_str = ""
+                    try:
+                        installments_str = (
+                            row.locator(".transaction-installments")
+                            .inner_text(timeout=5000)
+                            .strip()
+                        )
+                    except Exception:
+                        pass
+
+                    if "cargos" in row_class:
+                        transaction_type = "Cargo"
+                        parsed_amount = -abs(parsed_amount)
+                        category_name = (
+                            row.locator(".category-name")
+                            .inner_text(timeout=5000)
+                            .strip()
+                        )
+                        category_desc = (
+                            row.locator(".category-description")
+                            .inner_text(timeout=5000)
+                            .strip()
+                        )
+                        transaction_detail = (
+                            row.locator(".transaction-detail")
+                            .inner_text(timeout=5000)
+                            .strip()
+                        )
+                        description = (
+                            f"{transaction_detail} ({category_name}, {category_desc})"
+                        )
+                    else:
+                        transaction_type = "Abono"
+                        parsed_amount = abs(parsed_amount)
+                        category_name = (
+                            row.locator(".category-name")
+                            .inner_text(timeout=5000)
+                            .strip()
+                        )
+                        transaction_detail = (
+                            row.locator(".transaction-detail")
+                            .inner_text(timeout=5000)
+                            .strip()
+                        )
+                        description = f"{transaction_detail} ({category_name})"
+
+                    if parsed_amount.is_zero():
+                        logger.debug(f"Period {i}, row {j} has zero amount, skipping.")
+                        continue
+
+                    movement = MovementModel(
+                        date=parsed_date,
+                        description=description,
+                        amount=parsed_amount,
+                        currency="CLP",
+                        transaction_type=transaction_type,
+                        account_id=account_id,
+                        account_type="credito",
+                        raw_data={
+                            "date_str": date_str,
+                            "amount_str": amount_str,
+                            "bank_category": transaction_type,
+                            "billing_period": period_label,
+                            "installments": installments_str,
+                        },
+                    )
+                    period_movements.append(movement)
+
+                except Exception as e:
+                    logger.warning(f"Failed to parse billed row {j} in period {i}: {e}")
+                    self._save_debug_info(f"billed_period_{i}_row_{j}_failed")
+                    continue
+
+            logger.info(
+                f"Extracted {len(period_movements)} movements from period {i}: {period_label}."
+            )
+            all_billed_movements.extend(period_movements)
 
         logger.info(
-            f"Credit card extraction finished. Total: {len(all_credit_movements)} movements."
+            f"Total billed national credit card movements: {len(all_billed_movements)}."
         )
+        return all_billed_movements
 
-        return all_credit_movements
+    def _extract_unbilled_intl_credit_movements(
+        self, account_id: str
+    ) -> List[MovementModel]:
+        """Extracts unbilled international credit card movements (current period, tab0)."""
+        page = self._ensure_page()
+        logger.info("Navigating to international credit card movements.")
+
+        self._click("app-segmented-control .selection:has-text('Internacional')")
+
+        row_selector = "app-transaction-row div.row.transaction"
+        try:
+            page.wait_for_selector(f"{row_selector} >> nth=0", timeout=5000)
+        except (PlaywrightTimeoutError, DataExtractionError):
+            logger.info("No unbilled international credit card movements found.")
+            return []
+
+        rows = page.locator(row_selector).all()
+        logger.debug(f"Found {len(rows)} unbilled international rows.")
+
+        unbilled_intl_movements: List[MovementModel] = []
+
+        for i, row in enumerate(rows):
+            try:
+                date_str = row.locator(".date").inner_text(timeout=5000).strip()
+                parsed_date = self._parse_bice_date(date_str)
+                if not parsed_date:
+                    logger.warning(
+                        f"Could not parse date: {date_str}. Skipping row {i}."
+                    )
+                    continue
+
+                amount_str = (
+                    row.locator(".transaction-amount").inner_text(timeout=5000).strip()
+                )
+                parsed_amount = parse_chilean_amount(
+                    self._parse_intl_amount(amount_str)
+                )
+
+                row_class = row.locator("div.wm-100").get_attribute("class")
+
+                if "cargos" in row_class:
+                    transaction_type = "Cargo"
+                    parsed_amount = -abs(parsed_amount)
+                    category_name = (
+                        row.locator(".category-name").inner_text(timeout=5000).strip()
+                    )
+                    category_desc = (
+                        row.locator(".category-description")
+                        .inner_text(timeout=5000)
+                        .strip()
+                    )
+                    transaction_detail = (
+                        row.locator(".transaction-detail")
+                        .inner_text(timeout=5000)
+                        .strip()
+                    )
+                    description = (
+                        f"{transaction_detail} ({category_name}, {category_desc})"
+                    )
+                else:
+                    transaction_type = "Abono"
+                    parsed_amount = abs(parsed_amount)
+                    category_name = (
+                        row.locator(".category-name").inner_text(timeout=5000).strip()
+                    )
+                    transaction_detail = (
+                        row.locator(".transaction-detail")
+                        .inner_text(timeout=5000)
+                        .strip()
+                    )
+                    description = f"{transaction_detail} ({category_name})"
+
+                if parsed_amount.is_zero():
+                    continue
+
+                movement = MovementModel(
+                    date=parsed_date,
+                    description=description,
+                    amount=parsed_amount,
+                    currency="USD",
+                    transaction_type=transaction_type,
+                    account_id=account_id,
+                    account_type="credito",
+                    raw_data={
+                        "date_str": date_str,
+                        "amount_str": amount_str,
+                        "bank_category": transaction_type,
+                    },
+                )
+                unbilled_intl_movements.append(movement)
+
+            except Exception as e:
+                logger.warning(f"Failed to parse unbilled international row {i}: {e}")
+                self._save_debug_info(f"unbilled_intl_row_{i}_failed")
+                continue
+
+        logger.info(
+            f"Successfully extracted {len(unbilled_intl_movements)} unbilled international credit card movements."
+        )
+        return unbilled_intl_movements
+
+    def _extract_billed_intl_credit_movements(
+        self, account_id: str
+    ) -> List[MovementModel]:
+        """Extracts billed international credit card movements from all billing period accordions."""
+        page = self._ensure_page()
+        logger.info("Navigating to billed international credit card movements (#tab1).")
+
+        self._click("#tab1")
+
+        accordion_locator = page.locator("[id^='acc-']")
+        try:
+            self._wait_for_selector(accordion_locator, timeout_override=15000)
+        except (PlaywrightTimeoutError, DataExtractionError):
+            logger.info("No billed international movement periods found.")
+            return []
+
+        acc_count = accordion_locator.count()
+        logger.info(f"Found {acc_count} international billing period(s).")
+        self._save_debug_info("13_billed_intl_periods")
+
+        all_billed_intl_movements: List[MovementModel] = []
+
+        for i in range(acc_count):
+            acc = accordion_locator.nth(i)
+
+            period_label = f"Período {i + 1}"
+            try:
+                period_label = (
+                    acc.locator(".period-accordion-header strong")
+                    .inner_text(timeout=5000)
+                    .strip()
+                )
+            except Exception:
+                pass
+
+            logger.info(f"Processing international billing period {i}: {period_label}.")
+
+            toggle_button = acc.locator(".card-header button")
+            try:
+                is_expanded = toggle_button.get_attribute("aria-expanded") == "true"
+                if not is_expanded:
+                    self._click(toggle_button)
+                    self._wait_for_selector(
+                        acc.locator("app-transaction-row"),
+                        timeout_override=10000,
+                    )
+            except (PlaywrightTimeoutError, DataExtractionError) as e:
+                logger.warning(
+                    f"Failed to expand international period {i} ({period_label}): {e}"
+                )
+                self._save_debug_info(f"billed_intl_period_{i}_expand_failed")
+                continue
+
+            rows = acc.locator("app-transaction-row div.row.transaction").all()
+            logger.debug(f"Found {len(rows)} rows in international period {i}.")
+
+            period_movements: List[MovementModel] = []
+
+            for j, row in enumerate(rows):
+                try:
+                    date_str = row.locator(".date").inner_text(timeout=5000).strip()
+                    parsed_date = self._parse_bice_date(date_str)
+                    if not parsed_date:
+                        logger.warning(
+                            f"Could not parse date '{date_str}' in intl period {i}, row {j}. Skipping."
+                        )
+                        continue
+
+                    amount_str = (
+                        row.locator(".transaction-amount")
+                        .inner_text(timeout=5000)
+                        .strip()
+                    )
+                    parsed_amount = parse_chilean_amount(
+                        self._parse_intl_amount(amount_str)
+                    )
+
+                    row_class = row.locator("div.wm-100").get_attribute("class")
+
+                    if "cargos" in row_class:
+                        transaction_type = "Cargo"
+                        parsed_amount = -abs(parsed_amount)
+                        category_name = (
+                            row.locator(".category-name")
+                            .inner_text(timeout=5000)
+                            .strip()
+                        )
+                        category_desc = (
+                            row.locator(".category-description")
+                            .inner_text(timeout=5000)
+                            .strip()
+                        )
+                        transaction_detail = (
+                            row.locator(".transaction-detail")
+                            .inner_text(timeout=5000)
+                            .strip()
+                        )
+                        description = (
+                            f"{transaction_detail} ({category_name}, {category_desc})"
+                        )
+                    else:
+                        transaction_type = "Abono"
+                        parsed_amount = abs(parsed_amount)
+                        category_name = (
+                            row.locator(".category-name")
+                            .inner_text(timeout=5000)
+                            .strip()
+                        )
+                        transaction_detail = (
+                            row.locator(".transaction-detail")
+                            .inner_text(timeout=5000)
+                            .strip()
+                        )
+                        description = f"{transaction_detail} ({category_name})"
+
+                    if parsed_amount.is_zero():
+                        logger.debug(
+                            f"Intl period {i}, row {j} has zero amount, skipping."
+                        )
+                        continue
+
+                    movement = MovementModel(
+                        date=parsed_date,
+                        description=description,
+                        amount=parsed_amount,
+                        currency="USD",
+                        transaction_type=transaction_type,
+                        account_id=account_id,
+                        account_type="credito",
+                        raw_data={
+                            "date_str": date_str,
+                            "amount_str": amount_str,
+                            "bank_category": transaction_type,
+                            "billing_period": period_label,
+                        },
+                    )
+                    period_movements.append(movement)
+
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to parse billed intl row {j} in period {i}: {e}"
+                    )
+                    self._save_debug_info(f"billed_intl_period_{i}_row_{j}_failed")
+                    continue
+
+            logger.info(
+                f"Extracted {len(period_movements)} movements from international period {i}: {period_label}."
+            )
+            all_billed_intl_movements.extend(period_movements)
+
+        logger.info(
+            f"Total billed international credit card movements: {len(all_billed_intl_movements)}."
+        )
+        return all_billed_intl_movements
