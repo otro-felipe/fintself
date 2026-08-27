@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 fintself = "fintself.cli:app"
+fintself-diagnose-santander = "fintself.diagnostics.santander:cli"
 
 [tool.setuptools.packages.find]
 include = ["fintself*"]

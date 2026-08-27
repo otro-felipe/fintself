@@ -89,6 +89,27 @@ pip install fintself
     fintself scrape cl_estado --output-file cuenta_rut.xlsx --debug
     ```
 
+### Diagnóstico local seguro de Santander
+
+Para comprobar el flujo de Santander sin exportar ni mostrar movimientos, ejecuta:
+
+```bash
+fintself-diagnose-santander
+```
+
+El comando solicita el RUT por entrada interactiva y la clave con `getpass`, fuerza
+el navegador visible, desactiva los artefactos de depuración y silencia la salida
+interna. Solo informa la etapa, un código de resultado permitido y, si termina
+correctamente, la cantidad de movimientos. No acepta credenciales por argumentos,
+variables de entorno ni archivos.
+
+En macOS también puedes pedir ambos valores mediante diálogos nativos con la
+respuesta oculta y capturada solo en memoria:
+
+```bash
+fintself-diagnose-santander --mac-dialog
+```
+
 ### Uso como librería en Python
 
 ```python
