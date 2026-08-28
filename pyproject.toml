@@ -1,6 +1,6 @@
 [project]
 name = "fintself"
-version = "1.5.0.post2"
+version = "1.5.0.post3"
 description = "Open source collaborative bank transaction scraper for Chilean banks."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -21,6 +21,13 @@ fintself-diagnose-santander = "fintself.diagnostics.santander:cli"
 
 [tool.setuptools.packages.find]
 include = ["fintself*"]
+
+[tool.setuptools.package-data]
+"fintself.scrapers.cl" = [
+    "akamai_runtime/package.json",
+    "akamai_runtime/package-lock.json",
+    "akamai_runtime/telemetry.mjs",
+]
 
 [project.optional-dependencies]
 dev = [

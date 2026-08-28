@@ -138,6 +138,7 @@ celerybeat.pid
 .env
 .envrc
 .venv
+node_modules/
 debug_output/
 env/
 venv/

@@ -7,4 +7,4 @@ def test_personal_finances_fork_has_a_distinct_patch_version():
         (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
     )
 
-    assert project["project"]["version"] == "1.5.0.post2"
+    assert project["project"]["version"] == "1.5.0.post3"

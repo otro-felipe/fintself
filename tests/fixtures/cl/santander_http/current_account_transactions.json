@@ -3,14 +3,23 @@
     "movements": [
       {
         "transactionDate": "2026-08-20",
-        "description": "SYNTHETIC DEBIT MOVEMENT",
-        "amount": "-12.345",
+        "operationTime": "2026-08-20T12:34:56",
+        "accountingDate": "2026-08-20",
+        "movementNumber": "SYNTHETIC_DEBIT_NUMBER",
+        "expandedCode": "SYNTHETIC EXPANDED DEBIT",
+        "observation": "SYNTHETIC DEBIT OBSERVATION",
+        "movementAmount": "12.345",
+        "chargePaymentFlag": "C",
         "currency": "CLP"
       },
       {
-        "transactionDate": "2026-08-21",
-        "description": "SYNTHETIC CREDIT MOVEMENT",
-        "creditAmount": "50.000",
+        "operationTime": "2026-08-21T09:15:00",
+        "accountingDate": "2026-08-21",
+        "movementNumber": "SYNTHETIC_CREDIT_NUMBER",
+        "expandedCode": "",
+        "observation": "SYNTHETIC CREDIT OBSERVATION",
+        "movementAmount": "50.000",
+        "chargePaymentFlag": "P",
         "currency": "CLP"
       }
     ],

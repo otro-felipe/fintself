@@ -1,0 +1,12 @@
+{
+  "name": "fintself-santander-akamai-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Isolated public-script runtime for Santander Akamai telemetry",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "jsdom": "26.1.0"
+  }
+}

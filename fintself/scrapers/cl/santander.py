@@ -2,9 +2,11 @@
 
 import json
 import re
+import subprocess
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from importlib import resources
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urljoin
 
@@ -36,7 +38,7 @@ MAZON_NATIONAL_URL = f"{MAZON_BASE_URL}/ResumenEECCNacional"
 MAZON_INTERNATIONAL_URL = f"{MAZON_BASE_URL}/ResumenEECCInternacional"
 
 AUTH_CLIENT_ID = "4e9af62c-6563-42cd-aab6-0dd7d50a9131"
-ACCOUNT_CLIENT_ID = "33N9W6H2qf2G9mGbOeQnal68IqlteL7L"
+ACCOUNT_CLIENT_ID = "O2XRSU4kVspEGbLDDGfFC5BOTrGKh5Ts"
 CARD_CLIENT_ID = "O2XRSU4kVspEGbLDDGfFC5BOTrGKh5Ts"
 FRAME_URL = "https://mibanco.santander.cl/UI.Web.HB/Private_new/frame/"
 
@@ -48,13 +50,62 @@ class SantanderAuth:
     products: Dict[str, Any]
 
 
+class NodeAkamaiTelemetryProvider:
+    """Generate Akamai telemetry from public HTML in an isolated Node process."""
+
+    def __init__(
+        self,
+        *,
+        node_binary: str = "node",
+        subprocess_runner: Callable = subprocess.run,
+    ):
+        self._node_binary = node_binary
+        self._subprocess_runner = subprocess_runner
+
+    def __call__(self, frame_html: str) -> str:
+        helper = resources.files("fintself.scrapers.cl").joinpath(
+            "akamai_runtime/telemetry.mjs"
+        )
+        request = json.dumps({"frameUrl": FRAME_URL, "html": frame_html})
+        try:
+            result = self._subprocess_runner(
+                [self._node_binary, str(helper)],
+                input=request,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except (FileNotFoundError, OSError):
+            raise DataExtractionError(
+                "Santander telemetry unavailable: Node.js and jsdom are required."
+            )
+        except subprocess.TimeoutExpired:
+            raise DataExtractionError("Unable to generate Santander telemetry.")
+
+        if result.returncode == 78:
+            raise DataExtractionError(
+                "Santander telemetry unavailable: Node.js and jsdom are required."
+            )
+        if result.returncode != 0:
+            raise DataExtractionError("Unable to generate Santander telemetry.")
+        telemetry = result.stdout.strip()
+        if not telemetry or len(telemetry) > 16384 or any(
+            character in telemetry for character in "\r\n\x00"
+        ):
+            raise DataExtractionError("Unable to generate Santander telemetry.")
+        return telemetry
+
+
 class PublicJavascriptChallengeProvider:
     """Discover public auth material without persisting response bodies.
 
-    Akamai telemetry is deliberately not fabricated here. Deployments that require
-    it may inject a provider that returns both public ``tokentbk`` and ephemeral
-    ``Akamai-BM-Telemetry`` values held only in memory.
+    The public bundle provides ``tokentbk``. A small Node+jsdom helper evaluates the
+    public Akamai script and returns ephemeral telemetry held only in memory.
     """
+
+    def __init__(self, telemetry_provider: Optional[Callable] = None):
+        self._telemetry_provider = telemetry_provider or NodeAkamaiTelemetryProvider()
 
     def __call__(self, session) -> Dict[str, str]:
         try:
@@ -87,7 +138,11 @@ class PublicJavascriptChallengeProvider:
             )
             if not token_match:
                 raise DataExtractionError("Unable to find Santander public login challenge.")
-            return {"tokentbk": token_match.group(1)}
+            telemetry = self._telemetry_provider(frame.text)
+            return {
+                "tokentbk": token_match.group(1),
+                "Akamai-BM-Telemetry": telemetry,
+            }
         except DataExtractionError:
             raise
         except Exception:
@@ -235,10 +290,20 @@ class SantanderScraper:
                 )
             )
             pan = str(product.get("NUMEROPAN") or "")
-            is_card = bool(pan) or "TARJETA" in label
+            pan_digits = re.sub(r"\D", "", pan)
+            is_card = len(pan_digits) == 16 or any(
+                marker in label
+                for marker in ("TARJETA", "VISA", "MASTERCARD", "MASTER CARD", "AMEX", "WORLD")
+            )
             is_current_account = any(
                 marker in label
-                for marker in ("CUENTA CORRIENTE", "CTA CTE", "CUENTA VISTA")
+                for marker in (
+                    "CUENTA CORRIENTE",
+                    "CTA CTE",
+                    "CUENTA VISTA",
+                    "LINEA DE CREDITO",
+                    "LCR",
+                )
             )
             if (name == "creditCards" and not is_card) or (
                 name == "currentAccounts" and (is_card or not is_current_account)
@@ -291,6 +356,11 @@ class SantanderScraper:
     def _scrape_current_accounts(self, session, auth: SantanderAuth) -> List[MovementModel]:
         movements: List[MovementModel] = []
         today = self._today_provider()
+        closing_date = date(
+            today.year + (1 if today.month == 12 else 0),
+            1 if today.month == 12 else today.month + 1,
+            15,
+        )
         for account in self._product_list(auth.products, "currentAccounts"):
             account_id = account.get("accountId") or (
                 f"{account.get('contractOffice', '')}{account.get('contractNumber', '')}"
@@ -298,22 +368,49 @@ class SantanderScraper:
             if not account_id:
                 continue
             currency = account.get("currency") or "CLP"
-            body = self._post_json(
-                session,
-                CURRENT_ACCOUNT_TRANSACTIONS_URL,
-                {
-                    "accountId": account_id,
-                    "currency": currency,
-                    "commercialGroup": account.get("commercialGroup") or "",
-                    "openingDate": (today - timedelta(days=90)).isoformat(),
-                    "closingDate": today.isoformat(),
-                },
-                self._account_headers(auth.access_token),
-            )
-            movements.extend(
-                self._parse_current_account_movements(body, account_id, currency)
-            )
+            request = {
+                "accountId": account_id,
+                "currency": currency,
+                "commercialGroup": "LCA"
+                if account.get("commercialGroup") == "LCR"
+                else "",
+                "openingDate": (today - timedelta(days=40)).isoformat(),
+                "closingDate": closing_date.isoformat(),
+            }
+            repositionings = set()
+            while True:
+                body = self._post_json(
+                    session,
+                    CURRENT_ACCOUNT_TRANSACTIONS_URL,
+                    request,
+                    self._account_headers(auth.access_token),
+                )
+                movements.extend(
+                    self._parse_current_account_movements(body, account_id, currency)
+                )
+                repositioning = self._repositioning(body)
+                if not repositioning or repositioning in repositionings:
+                    break
+                repositionings.add(repositioning)
+                request = {
+                    **request,
+                    "startMovement": repositioning[0],
+                    "endMovement": repositioning[1],
+                }
         return movements
+
+    @classmethod
+    def _repositioning(cls, payload: dict) -> Optional[tuple]:
+        value = (
+            cls._dig(payload, "data", "repositioningExit")
+            or cls._dig(payload, "data", "DATA", "repositioningExit")
+            or payload.get("repositioningExit")
+        )
+        if not isinstance(value, dict):
+            return None
+        start = value.get("startMovement")
+        end = value.get("endMovement")
+        return (str(start), str(end)) if start and end else None
 
     def _scrape_credit_cards(
         self, session, auth: SantanderAuth, user: str
@@ -452,13 +549,19 @@ class SantanderScraper:
             if not isinstance(row, dict):
                 continue
             movement_date = self._parse_date(
-                row.get("transactionDate") or row.get("fecha") or row.get("Fecha")
+                row.get("transactionDate")
+                or row.get("operationTime")
+                or row.get("accountingDate")
+                or row.get("fecha")
+                or row.get("Fecha")
             )
             amount = self._movement_amount(row)
             if not movement_date or amount == 0:
                 continue
             description = str(
-                row.get("description")
+                row.get("expandedCode")
+                or row.get("observation")
+                or row.get("description")
                 or row.get("descripcion")
                 or row.get("glosa")
                 or ""
@@ -558,14 +661,25 @@ class SantanderScraper:
         if row.get("creditAmount") not in (None, ""):
             return abs(parse_chilean_amount(str(row["creditAmount"])))
         amount = parse_chilean_amount(
-            str(row.get("amount") or row.get("monto") or row.get("Importe") or "0")
+            str(
+                row.get("movementAmount")
+                or row.get("amount")
+                or row.get("monto")
+                or row.get("Importe")
+                or "0"
+            )
         )
+        charge_payment_flag = str(row.get("chargePaymentFlag") or "").upper()
+        if charge_payment_flag in ("C", "CHARGE"):
+            return -abs(amount)
+        if charge_payment_flag in ("P", "PAYMENT"):
+            return abs(amount)
         movement_type = str(
             row.get("tipoMovimiento") or row.get("IndicadorDebeHaber") or ""
         ).upper()
         if movement_type in ("D", "DEBITO", "CARGO"):
             return -abs(amount)
-        if movement_type in ("H", "C", "CREDITO", "ABONO"):
+        if movement_type in ("H", "C", "PAGO", "CREDITO", "ABONO"):
             return abs(amount)
         return amount
 

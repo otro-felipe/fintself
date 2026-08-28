@@ -111,10 +111,23 @@ fintself-diagnose-santander --mac-dialog
 ```
 
 Santander no usa Playwright ni genera capturas/HTML. El login obtiene el challenge
-público vigente desde los bundles del banco y realiza las consultas con
-`curl_cffi`. Algunos perfiles de Akamai pueden exigir además telemetría efímera;
-la librería permite inyectar un proveedor en memoria y nunca persiste ni registra
-esa telemetría.
+público vigente desde los bundles del banco, genera la telemetría efímera de
+Akamai en un proceso aislado de Node.js y realiza las consultas con `curl_cffi`.
+El helper requiere Node.js 18 o superior y `jsdom` 26.1.0; busca `jsdom` en el
+directorio de ejecución para funcionar con instalaciones como Heroku y también en
+su propio directorio durante el desarrollo del fork. Nunca persiste ni registra
+la telemetría.
+
+Para preparar el runtime local del fork de forma reproducible:
+
+```bash
+npm ci --omit=dev --prefix fintself/scrapers/cl/akamai_runtime
+```
+
+Una aplicación que empaqueta Fintself puede declarar `jsdom@26.1.0` en su propio
+`package.json`; no es necesario copiar `node_modules` dentro del paquete Python.
+Si falta Node.js o `jsdom`, el scraper termina antes de enviar las credenciales y
+devuelve un error seguro con la dependencia que falta.
 
 ### Uso como librería en Python
 
