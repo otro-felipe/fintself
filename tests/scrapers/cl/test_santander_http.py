@@ -252,7 +252,13 @@ def test_scrape_uses_official_current_account_contract_and_closes_session():
     }
     assert kwargs["headers"] == {
         "Authorization": "Bearer SYNTHETIC_ACCESS_TOKEN",
+        "Accept": "application/json, text/plain, */*",
         "Content-Type": "application/json",
+        "Origin": "https://mibanco.santander.cl",
+        "Referer": "https://mibanco.santander.cl/",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-site",
         "X-Client-Code": "STD-PER-FPP",
         "X-Organization-Code": "Santander",
         "X-Santander-Client-Id": "O2XRSU4kVspEGbLDDGfFC5BOTrGKh5Ts",
@@ -276,8 +282,9 @@ def test_current_account_paginates_with_repositioning_and_maps_lcr_to_lca():
         "data": {
             "movements": [],
             "repositioningExit": {
-                "startMovement": "SYNTHETIC_START",
-                "endMovement": "SYNTHETIC_END",
+                "recordRecover": 50,
+                "initialMove": "SYNTHETIC_START",
+                "finalMove": "SYNTHETIC_END",
             },
         }
     }
@@ -540,6 +547,24 @@ def test_invalid_json_is_classified_without_echoing_response(capsys):
 
     captured = capsys.readouterr()
     assert "SENSITIVE_PROVIDER_BODY" not in captured.out + captured.err
+
+
+def test_official_angular_xssi_prefix_is_stripped_without_relaxing_json_syntax():
+    response = FakeResponse(
+        payload=ValueError("synthetic parser failure"),
+        text=")]}'\n{\"data\": {\"movements\": []}}",
+    )
+
+    assert SantanderScraper._response_json(response) == {
+        "data": {"movements": []}
+    }
+
+    invalid = FakeResponse(
+        payload=ValueError("synthetic parser failure"),
+        text=")]}'\n{alsoNotJson: true}",
+    )
+    with pytest.raises(DataExtractionError, match="invalid JSON"):
+        SantanderScraper._response_json(invalid)
 
 
 def test_public_challenge_provider_discovers_current_token_from_public_js_only():
@@ -847,8 +872,9 @@ def test_empty_products_and_repositioning_variants_are_safe():
     assert scraper._repositioning(
         {
             "repositioningExit": {
-                "startMovement": "START",
-                "endMovement": "END",
+                "recordRecover": 50,
+                "initialMove": "START",
+                "finalMove": "END",
             }
         }
     ) == ("START", "END")

@@ -244,7 +244,13 @@ class SantanderScraper:
         try:
             payload = response.json()
         except Exception:
-            raise DataExtractionError("Santander returned invalid JSON.")
+            text = getattr(response, "text", "")
+            if not isinstance(text, str) or not re.match(r"^\)\]\}',?\n", text):
+                raise DataExtractionError("Santander returned invalid JSON.") from None
+            try:
+                payload = json.loads(re.sub(r"^\)\]\}',?\n", "", text, count=1))
+            except (TypeError, ValueError):
+                raise DataExtractionError("Santander returned invalid JSON.") from None
         if not isinstance(payload, dict):
             raise DataExtractionError("Santander returned invalid JSON.")
         return payload
@@ -331,7 +337,13 @@ class SantanderScraper:
     def _account_headers(access_token: str) -> Dict[str, str]:
         return {
             "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json, text/plain, */*",
             "Content-Type": "application/json",
+            "Origin": "https://mibanco.santander.cl",
+            "Referer": "https://mibanco.santander.cl/",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-site",
             "X-Client-Code": "STD-PER-FPP",
             "X-Organization-Code": "Santander",
             "X-Santander-Client-Id": ACCOUNT_CLIENT_ID,
@@ -408,8 +420,10 @@ class SantanderScraper:
         )
         if not isinstance(value, dict):
             return None
-        start = value.get("startMovement")
-        end = value.get("endMovement")
+        if str(value.get("recordRecover")) != "50":
+            return None
+        start = value.get("initialMove")
+        end = value.get("finalMove")
         return (str(start), str(end)) if start and end else None
 
     def _scrape_credit_cards(
