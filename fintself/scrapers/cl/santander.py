@@ -28,7 +28,15 @@ class SantanderScraper(BaseScraper):
             options.update(
                 {
                     "channel": "chromium",
-                    "args": ["--disable-blink-features=AutomationControlled"],
+                    "args": [
+                        "--disable-blink-features=AutomationControlled",
+                        "--renderer-process-limit=1",
+                        "--disable-dev-shm-usage",
+                        "--disable-background-networking",
+                        "--disable-extensions",
+                        "--disable-sync",
+                        "--no-first-run",
+                    ],
                 }
             )
         return options
