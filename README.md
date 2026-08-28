@@ -97,9 +97,9 @@ Para comprobar el flujo de Santander sin exportar ni mostrar movimientos, ejecut
 fintself-diagnose-santander
 ```
 
-El comando solicita el RUT por entrada interactiva y la clave con `getpass`, fuerza
-el navegador visible, desactiva los artefactos de depuración y silencia la salida
-interna. Solo informa la etapa, un código de resultado permitido y, si termina
+El comando solicita el RUT por entrada interactiva y la clave con `getpass`, usa
+el transporte HTTP de Santander y silencia la salida interna. Solo informa la
+etapa, un código de resultado permitido y, si termina
 correctamente, la cantidad de movimientos. No acepta credenciales por argumentos,
 variables de entorno ni archivos.
 
@@ -109,6 +109,12 @@ respuesta oculta y capturada solo en memoria:
 ```bash
 fintself-diagnose-santander --mac-dialog
 ```
+
+Santander no usa Playwright ni genera capturas/HTML. El login obtiene el challenge
+público vigente desde los bundles del banco y realiza las consultas con
+`curl_cffi`. Algunos perfiles de Akamai pueden exigir además telemetría efímera;
+la librería permite inyectar un proveedor en memoria y nunca persiste ni registra
+esa telemetría.
 
 ### Uso como librería en Python
 
@@ -146,7 +152,7 @@ except Exception as e:
 
 ## Depuración (Debugging)
 
-Si un scraper falla o necesitas ver qué está pasando, puedes activar el modo de depuración. Esto ejecutará el navegador en modo visible (no headless) y guardará capturas de pantalla y el contenido HTML de los pasos clave del proceso.
+Si un scraper basado en navegador falla o necesitas ver qué está pasando, puedes activar el modo de depuración. Esto ejecutará el navegador en modo visible (no headless) y guardará capturas de pantalla y el contenido HTML de los pasos clave del proceso. Santander usa HTTP y no genera estos artefactos.
 
 Los archivos de depuración se guardan en el directorio `debug_output/<bank_id>/`.
 
@@ -169,14 +175,14 @@ movements = scraper.scrape(user=USER, password=PASSWORD)
 
 ## Modo de ejecución del navegador
 
-Por defecto, Fintself ejecuta el navegador en **modo visible** (no headless), ya que algunos bancos tienen protecciones anti-bot que detectan navegadores sin interfaz gráfica. Esto garantiza la mejor compatibilidad con todos los bancos soportados.
+Por defecto, los scrapers basados en Playwright ejecutan el navegador en **modo visible** (no headless). Santander usa HTTP y no abre navegador.
 
 ### Modo headless (no recomendado)
 
 Si necesitas ejecutar el navegador en modo headless (sin interfaz gráfica), puedes usar la opción `--headless`, pero ten en cuenta que **algunos bancos pueden no funcionar correctamente**.
 
 ```bash
-fintself scrape cl_santander --output-file out.xlsx --headless
+fintself scrape cl_bice --output-file out.xlsx --headless
 ```
 
 ⚠️ **Advertencia**: Al usar `--headless`, verás un mensaje de advertencia indicando que algunos bancos pueden fallar. Si encuentras problemas, ejecuta el scraper sin esta opción (modo visible por defecto).
@@ -188,10 +194,10 @@ fintself scrape cl_santander --output-file out.xlsx --headless
 scraper = get_scraper("cl_santander")
 
 # Modo headless (puede no funcionar con algunos bancos)
-scraper = get_scraper("cl_santander", headless=True)
+scraper = get_scraper("cl_bice", headless=True)
 
 # Forzar modo visible explícitamente
-scraper = get_scraper("cl_santander", headless=False)
+scraper = get_scraper("cl_bice", headless=False)
 ```
 
 ### Variables de entorno

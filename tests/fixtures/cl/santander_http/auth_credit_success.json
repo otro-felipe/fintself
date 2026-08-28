@@ -1,0 +1,16 @@
+{
+  "access_token": "SYNTHETIC_ACCESS_TOKEN",
+  "refresh_token": "SYNTHETIC_REFRESH_TOKEN",
+  "tokenJWT": "SYNTHETIC_JWT",
+  "infoUser": {},
+  "CrucedeProducto": {
+    "creditCards": [
+      {
+        "cardId": "0000000000009876",
+        "contractOffice": "4321",
+        "contractNumber": "000000009876",
+        "currency": "CLP"
+      }
+    ]
+  }
+}

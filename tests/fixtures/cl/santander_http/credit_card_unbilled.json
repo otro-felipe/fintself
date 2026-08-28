@@ -1,0 +1,23 @@
+{
+  "DATA": {
+    "Informacion": {
+      "Codigo": "00"
+    },
+    "MatrizMovimientos": [
+      {
+        "Fecha": "25/08/2026",
+        "IndicadorDebeHaber": "D",
+        "Importe": "15.990",
+        "Comercio": "SYNTHETIC CARD PURCHASE",
+        "Descripcion": "SYNTHETIC DESCRIPTION"
+      },
+      {
+        "Fecha": "26/08/2026",
+        "IndicadorDebeHaber": "H",
+        "Importe": "2.000",
+        "Comercio": "SYNTHETIC CARD REFUND",
+        "Descripcion": "SYNTHETIC REFUND"
+      }
+    ]
+  }
+}

@@ -1,53 +1,29 @@
-from typing import Dict, Optional, Type
+from importlib import import_module
+from typing import Any, Dict, Optional, Tuple
 
 from fintself.core.exceptions import ScraperNotFound
-from fintself.scrapers.base import BaseScraper
 from fintself.utils.logging import logger
 
-# Import specific scrapers here so the factory can find them
-from .cl import (
-    BancoChileScraper,
-    BancoEstadoScraper,
-    BiceScraper,
-    CencosudScraper,
-    SantanderScraper,
-)
-
-# Dictionary that maps bank IDs to scraper classes
-_SCRAPERS: Dict[str, Type[BaseScraper]] = {
-    "cl_santander": SantanderScraper,
-    "cl_cencosud": CencosudScraper,
-    "cl_banco_chile": BancoChileScraper,
-    "cl_estado": BancoEstadoScraper,
-    "cl_bice": BiceScraper,
+_SCRAPERS: Dict[str, Tuple[str, str]] = {
+    "cl_santander": ("fintself.scrapers.cl.santander", "SantanderScraper"),
+    "cl_cencosud": ("fintself.scrapers.cl.cencosud", "CencosudScraper"),
+    "cl_banco_chile": ("fintself.scrapers.cl.banco_chile", "BancoChileScraper"),
+    "cl_estado": ("fintself.scrapers.cl.estado", "BancoEstadoScraper"),
+    "cl_bice": ("fintself.scrapers.cl.bice", "BiceScraper"),
 }
 
 
 def get_scraper(
     bank_id: str, headless: Optional[bool] = None, debug_mode: Optional[bool] = None
-) -> BaseScraper:
-    """
-    Factory function to get a bank scraper instance.
-
-    If headless or debug_mode are not provided, the values will be taken
-    from the environment variables defined in settings.
-
-    Args:
-        bank_id (str): The unique identifier for the bank (e.g., "cl_santander").
-        headless (Optional[bool]): If True, runs headless. If None, uses env setting.
-        debug_mode (Optional[bool]): If True, enables debug. If None, uses env setting.
-
-    Returns:
-        BaseScraper: An instance of the requested scraper.
-
-    Raises:
-        ScraperNotFound: If the bank_id does not match any known scraper.
-    """
-    scraper_class = _SCRAPERS.get(bank_id)
-    if not scraper_class:
+) -> Any:
+    """Return a scraper instance without importing unrelated browser runtimes."""
+    scraper_path = _SCRAPERS.get(bank_id)
+    if not scraper_path:
         logger.error(f"Scraper '{bank_id}' not found.")
         raise ScraperNotFound(bank_id)
 
+    module_name, class_name = scraper_path
+    scraper_class = getattr(import_module(module_name), class_name)
     logger.debug(
         f"Instantiating scraper for '{bank_id}'. "
         f"Debug override: {debug_mode}, Headless override: {headless}"
@@ -56,12 +32,7 @@ def get_scraper(
 
 
 def list_available_scrapers() -> Dict[str, str]:
-    """
-    Lists all available bank scrapers.
-
-    Returns:
-        Dict[str, str]: A dictionary where the key is the bank_id and the value is a description.
-    """
+    """List all registered bank scraper identifiers and descriptions."""
     descriptions = {
         "cl_santander": "Scraper for Banco Santander (Chile).",
         "cl_cencosud": "Scraper for Tarjeta Cencosud Scotiabank (Chile).",
@@ -69,10 +40,4 @@ def list_available_scrapers() -> Dict[str, str]:
         "cl_estado": "Scraper for Cuenta RUT Banco Estado (Chile).",
         "cl_bice": "Scraper for Banco Bice (Chile).",
     }
-
-    return {
-        bank_id: descriptions.get(
-            bank_id, f"Scraper for {bank_id.replace('_', ' ').title()}"
-        )
-        for bank_id in _SCRAPERS.keys()
-    }
+    return {bank_id: descriptions[bank_id] for bank_id in _SCRAPERS}

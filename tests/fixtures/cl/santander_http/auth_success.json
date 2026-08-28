@@ -1,0 +1,19 @@
+{
+  "access_token": "SYNTHETIC_ACCESS_TOKEN",
+  "refresh_token": "SYNTHETIC_REFRESH_TOKEN",
+  "tokenJWT": "SYNTHETIC_JWT",
+  "infoUser": {
+    "displayName": "Synthetic User"
+  },
+  "CrucedeProducto": {
+    "currentAccounts": [
+      {
+        "accountId": "0123000012345678",
+        "contractOffice": "0123",
+        "contractNumber": "000012345678",
+        "currency": "CLP",
+        "commercialGroup": ""
+      }
+    ]
+  }
+}

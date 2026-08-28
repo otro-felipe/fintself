@@ -1,0 +1,23 @@
+{
+  "data": {
+    "movements": [
+      {
+        "transactionDate": "2026-08-20",
+        "description": "SYNTHETIC DEBIT MOVEMENT",
+        "amount": "-12.345",
+        "currency": "CLP"
+      },
+      {
+        "transactionDate": "2026-08-21",
+        "description": "SYNTHETIC CREDIT MOVEMENT",
+        "creditAmount": "50.000",
+        "currency": "CLP"
+      }
+    ],
+    "repositioningExit": {
+      "recordRecover": 2,
+      "initialMove": 1,
+      "finalMove": 2
+    }
+  }
+}
