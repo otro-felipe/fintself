@@ -22,6 +22,17 @@ class SantanderScraper(BaseScraper):
     def _get_bank_id(self) -> str:
         return "cl_santander"
 
+    def _browser_launch_options(self) -> dict:
+        options = super()._browser_launch_options()
+        if self.headless:
+            options.update(
+                {
+                    "channel": "chromium",
+                    "args": ["--disable-blink-features=AutomationControlled"],
+                }
+            )
+        return options
+
     def _login(self) -> None:
         """Implements the login logic for Santander Chile."""
         assert self.user is not None, "User must be provided"

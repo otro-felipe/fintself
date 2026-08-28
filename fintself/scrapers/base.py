@@ -82,6 +82,13 @@ class BaseScraper(ABC):
         """Implements the bank-specific movement extraction logic."""
         pass
 
+    def _browser_launch_options(self) -> dict:
+        """Return Playwright launch options, overridable by a bank scraper."""
+        return {
+            "headless": self.headless,
+            "slow_mo": self.slow_mo,
+        }
+
     def _ensure_page(self) -> Page:
         """Ensures the page object is initialized, raising an error if not."""
         if not self.page:
@@ -334,7 +341,7 @@ class BaseScraper(ABC):
                     f"Launching browser for {self._get_bank_id()} (headless: {self.headless})..."
                 )
                 self.browser = self.playwright.chromium.launch(
-                    headless=self.headless, slow_mo=self.slow_mo
+                    **self._browser_launch_options()
                 )
 
                 context_options = {
